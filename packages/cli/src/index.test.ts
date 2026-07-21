@@ -12,11 +12,11 @@ describe("cli command dispatch", () => {
     expect(isCommand("frobnicate")).toBe(false);
   });
 
-  it("exits 0 when no command is given (prints usage)", () => {
-    expect(main([])).toBe(0);
+  it("exits 0 when no command is given (prints usage)", async () => {
+    expect(await main([])).toBe(0);
   });
 
-  it("exits 1 on an unknown command", () => {
-    expect(main(["frobnicate"])).toBe(1);
+  it("exits 1 on an unknown command", async () => {
+    expect(await main(["frobnicate"])).toBe(1);
   });
 });
