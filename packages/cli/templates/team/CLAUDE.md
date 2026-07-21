@@ -3,8 +3,9 @@
 Your Claude Code session shares a live context server with your teammates' sessions. A team
 digest is injected at the start of every session; treat the shared tools as your first stop.
 
-You also share this **working directory live** — the same files, at the same time, with no
-per-person copy. Coordinate through the shared tools before large or overlapping edits.
+You work on **your own branch** (`teamctx/<you>`) in your own worktree, so you can move
+independently. Share work by committing and pushing/PR-ing. Everyone talks to the same context
+server — coordinate there: post findings, log decisions, and check who's working on what.
 
 - **Before starting any task**, call `get_context` — see what the team already knows and who is
   working on what. Don't rediscover a gotcha a teammate already posted.

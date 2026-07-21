@@ -32,6 +32,8 @@ export interface ArtifactOptions {
   serverEntry: string;
   dataDir: string;
   home: string;
+  /** Optional git remote to clone into /team/repo; if absent, an empty repo is initialized. */
+  repoUrl?: string;
 }
 
 export interface Command {
@@ -78,29 +80,35 @@ export function renderSshdMatchBlock(o: ArtifactOptions): string {
 
 /**
  * The ForceCommand shell. Guests never reach an interactive prompt: it exec()s Claude Code in the
- * shared working tree and ignores whatever command the SSH client requested, so there is no escape.
+ * teammate's own git worktree (their own branch) and ignores whatever command the SSH client
+ * requested, so there is no escape.
  * Lines containing bash ${vars} are plain JS strings (not template literals) to keep them literal.
  */
 export function renderTeamctxShell(o: ArtifactOptions): string {
   return [
     "#!/bin/bash",
     "# teamctx ForceCommand shell — set as ForceCommand for the teamctx group in sshd_config.",
-    "# Guests never get an interactive shell: this exec()s Claude Code in the shared tree and",
+    "# Guests never get an interactive shell: this exec()s Claude Code in their own worktree and",
     "# ignores any command the SSH client requested, so there is no shell escape.",
     "set -euo pipefail",
     "",
     'USER_NAME="$(id -un)"',
     `TEAM_DIR="${o.teamDir}"`,
-    "# Everyone shares one working tree — same files, same time (no per-user isolation).",
-    'WORKDIR="${TEAM_DIR}/repo"',
+    'REPO="${TEAM_DIR}/repo"',
+    'BRANCH="teamctx/${USER_NAME}"',
+    'WORKDIR="${TEAM_DIR}/worktrees/${USER_NAME}"',
     "",
     'export TEAMCTX_USER="${USER_NAME}"',
     `export TEAMCTX_PORT="${o.port}"`,
     "",
-    'if [ ! -d "${WORKDIR}" ]; then',
-    '  WORKDIR="${TEAM_DIR}"',
+    "# Automatically allocate this teammate their own branch + worktree on first connect,",
+    "# so everyone works independently off the shared repo.",
+    'if [ ! -d "${WORKDIR}" ] && [ -d "${REPO}/.git" ]; then',
+    '  git -C "${REPO}" worktree add "${WORKDIR}" -b "${BRANCH}" 2>/dev/null \\',
+    '    || git -C "${REPO}" worktree add "${WORKDIR}" "${BRANCH}" 2>/dev/null \\',
+    "    || true",
     "fi",
-    'cd "${WORKDIR}"',
+    'cd "${WORKDIR}" 2>/dev/null || cd "${TEAM_DIR}"',
     "",
     'FLAG="${HOME}/.teamctx-welcomed"',
     'if [ ! -f "${FLAG}" ]; then',
@@ -284,4 +292,39 @@ export function teamDirCommands(o: ArtifactOptions): Command[] {
       description: `setgid + group-write ${o.teamDir}`,
     },
   ];
+}
+
+/**
+ * Attach the shared git repo at /team/repo: clone the remote (or init an empty repo), then make it
+ * usable by every teammate's Unix account — `safe.directory` (avoid git's dubious-ownership refusal
+ * across users) and `core.sharedRepository=group` (new objects stay group-writable). Per-user
+ * branches + worktrees are then allocated lazily by the ForceCommand shell on first connect.
+ */
+export function repoSetupCommands(o: ArtifactOptions): Command[] {
+  const repo = `${o.teamDir}/repo`;
+  const commands: Command[] = [];
+  if (o.repoUrl) {
+    commands.push({
+      argv: ["git", "clone", o.repoUrl, repo],
+      sudo: false,
+      description: `clone ${o.repoUrl} into ${repo}`,
+    });
+  } else {
+    commands.push({
+      argv: ["git", "init", "-b", "main", repo],
+      sudo: false,
+      description: `initialize an empty git repo at ${repo}`,
+    });
+  }
+  commands.push({
+    argv: ["git", "config", "--system", "--add", "safe.directory", repo],
+    sudo: true,
+    description: "mark the shared repo safe for all users (avoid git dubious-ownership)",
+  });
+  commands.push({
+    argv: ["git", "-C", repo, "config", "core.sharedRepository", "group"],
+    sudo: false,
+    description: "keep new git objects group-writable",
+  });
+  return commands;
 }

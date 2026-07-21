@@ -39,9 +39,9 @@ Hoster's computer (macOS first, Linux second)
 │   ├── .mcp.json                 ← points every session at the localhost MCP server
 │   ├── .claude/settings.json     ← SessionStart hook → injects team digest
 │   ├── .claude/hooks/…           ← hook scripts
-│   └── repo/                     ← one shared working tree (same files for everyone)
+│   └── repo/ (shared clone) + worktrees/<user>/ ← each teammate on their own branch
 ├── /etc/claude-code/managed-settings.json  ← fixed folders + deny rules, machine-wide
-├── sshd: Match Group teamctx → ForceCommand launch script (cd /team/repo, exec claude)
+├── sshd: Match Group teamctx → ForceCommand launch script (cd to your worktree, exec claude)
 └── Tailscale: `tailscale up --ssh`, ACL: tailnet members → ssh as their unix user
 
 Teammates: click invite link (join tailnet) → click ssh:// link → land inside Claude Code
@@ -57,16 +57,18 @@ Teammates: click invite link (join tailnet) → click ssh:// link → land insid
 
 ```bash
 # Preview exactly what would be provisioned — writes nothing to the system:
-npx teamctx host --users alice,bob
+npx teamctx host --users alice,bob --repo https://github.com/you/project.git
 
 # Apply for real (root; validate on a throwaway VM first — see SECURITY.md):
-sudo teamctx host --users alice,bob --execute
+sudo teamctx host --users alice,bob --repo https://github.com/you/project.git --execute
 ```
 
-`host` starts the MCP context server (supervised), stamps `/team`, creates locked-down guest
-accounts, writes machine-wide managed settings that pre-approve the context server, restricts the
-`teamctx` SSH group to Claude Code via `ForceCommand`, brings up Tailscale, and prints a per-teammate
-invite (tailnet step + `ssh://` link + QR code).
+`host` starts the MCP context server (supervised), clones your repo into `/team/repo`, stamps
+`/team`, creates locked-down guest accounts, writes machine-wide managed settings that pre-approve
+the context server, restricts the `teamctx` SSH group to Claude Code via `ForceCommand`, brings up
+Tailscale, and prints a per-teammate invite (tailnet step + `ssh://` link + QR code). Each teammate
+is auto-allocated their own branch (`teamctx/<user>`) and git worktree on first connect, so they
+work independently and share by pushing/PR-ing.
 
 Pause or remove hosting:
 
@@ -83,7 +85,7 @@ You only need the invite. Join the tailnet, then click the `ssh://` link or run:
 teamctx join ssh://alice@<host-magicdns-name>
 ```
 
-You land directly in your own Claude Code session, in the shared working tree. On first connect Claude asks
+You land directly in your own Claude Code session, on your own branch's worktree. On first connect Claude asks
 you to log in with **your own** Claude account (a URL + paste-back code) — teamctx never sees your
 credentials. From there the shared tools (`get_context`, `post_finding`, `claim_task`, …) and the
 auto-injected team digest just work.

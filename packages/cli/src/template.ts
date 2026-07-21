@@ -17,13 +17,14 @@ export const TEMPLATE_DIR = resolve(
 export interface StampResult {
   teamDir: string;
   repoDir: string;
+  worktreesDir: string;
 }
 
 /**
  * Stamp the team-folder template into `teamDir`: the config files (CLAUDE.md, .mcp.json,
- * .claude/settings.json, the SessionStart hook) plus a single shared `repo/` working tree that all
- * teammates operate in — the same files, at the same time (no per-user isolation). Idempotent:
- * re-stamping overwrites the template files and leaves existing repo contents in place.
+ * .claude/settings.json, the SessionStart hook) plus the `repo/` clone target and a `worktrees/`
+ * directory that holds one git worktree per teammate (each on their own branch). Idempotent:
+ * re-stamping overwrites the template files and leaves existing repo/worktree contents in place.
  *
  * Note on auto-connect: the stamped .mcp.json is a project-scoped server, which Claude Code leaves
  * at "pending approval" in an untrusted folder. `teamctx host` closes that gap by pre-approving the
@@ -36,9 +37,11 @@ export function stampTeamFolder(teamDir: string): StampResult {
   // cpSync does not guarantee the executable bit survives on every platform; enforce it.
   chmodSync(resolve(teamDir, ".claude", "hooks", "session-digest.sh"), 0o755);
 
-  // One shared working tree — everyone edits the same files live (no per-user worktrees).
+  // repo/ is the shared clone; worktrees/ holds one per-user worktree (each on its own branch).
   const repoDir = resolve(teamDir, "repo");
+  const worktreesDir = resolve(teamDir, "worktrees");
   mkdirSync(repoDir, { recursive: true });
+  mkdirSync(worktreesDir, { recursive: true });
 
-  return { teamDir, repoDir };
+  return { teamDir, repoDir, worktreesDir };
 }

@@ -26,6 +26,7 @@ export interface HostOptions {
   dryRun: boolean;
   prefix: string;
   magicDnsName: string;
+  repoUrl?: string;
 }
 
 export interface HostResult {
@@ -50,6 +51,7 @@ export function parseHostArgs(argv: string[]): HostOptions {
   let dryRun = true;
   let prefix = "";
   let magicDnsName = "";
+  let repoUrl: string | undefined;
 
   for (let i = 0; i < argv.length; i++) {
     const arg = argv[i];
@@ -72,6 +74,9 @@ export function parseHostArgs(argv: string[]): HostOptions {
       case "--magic-dns":
         magicDnsName = argv[++i] ?? "";
         break;
+      case "--repo":
+        repoUrl = argv[++i];
+        break;
       case "--execute":
         dryRun = false;
         break;
@@ -86,7 +91,7 @@ export function parseHostArgs(argv: string[]): HostOptions {
   const platform: A.Platform = process.platform === "linux" ? "linux" : "darwin";
   if (!prefix) prefix = resolve(tmpdir(), "teamctx-dryrun");
   if (!magicDnsName) magicDnsName = hostname();
-  return { users, teamDir, port, platform, dryRun, prefix, magicDnsName };
+  return { users, teamDir, port, platform, dryRun, prefix, magicDnsName, repoUrl };
 }
 
 function artifactOptions(o: HostOptions): A.ArtifactOptions {
@@ -102,6 +107,7 @@ function artifactOptions(o: HostOptions): A.ArtifactOptions {
     serverEntry: resolveServerEntry(),
     dataDir: resolve(o.teamDir, ".teamctx-data"),
     home: homedir(),
+    repoUrl: o.repoUrl,
   };
 }
 
@@ -162,6 +168,12 @@ export function buildPlan(o: HostOptions, ao: A.ArtifactOptions): PlanItem[] {
       title: `Create guest users: ${o.users.join(", ")}`,
       files: [],
       commands: userCommands,
+    },
+    {
+      id: "repo",
+      title: `Attach the shared git repo at ${o.teamDir}/repo`,
+      files: [],
+      commands: A.repoSetupCommands(ao),
     },
     {
       id: "teamdir",
