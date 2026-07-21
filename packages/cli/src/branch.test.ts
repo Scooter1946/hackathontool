@@ -26,6 +26,16 @@ describe("per-user branch allocation", () => {
     expect(sh).toContain("exec claude");
   });
 
+  it("the shell sets up per-user GitHub auth + identity on first connect (gated on a github remote)", () => {
+    const sh = renderTeamctxShell(ao());
+    expect(sh).toContain("grep -qi github.com");
+    expect(sh).toContain("gh auth login");
+    expect(sh).toContain("gh auth setup-git");
+    expect(sh).toContain("git config --global user.email");
+    // Attribution uses the privacy-preserving GitHub noreply email.
+    expect(sh).toContain("users.noreply.github.com");
+  });
+
   it("repoSetupCommands clones a given remote (else inits) and configures multi-user git", () => {
     const withRepo = repoSetupCommands(ao({ repoUrl: "https://github.com/you/project.git" })).map(
       (c) => c.argv.join(" "),

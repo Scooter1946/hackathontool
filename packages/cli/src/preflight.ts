@@ -27,6 +27,11 @@ export async function preflight(platform: Platform): Promise<ToolStatus[]> {
     { tool: "node", required: true, hint: "install Node 20+" },
     { tool: "git", required: true, hint: "install git (per-user worktrees)" },
     {
+      tool: "gh",
+      required: true,
+      hint: "install the GitHub CLI — teammates auth as themselves with it",
+    },
+    {
       tool: "claude",
       required: true,
       hint: "install Claude Code — the hoster runs their own session too",

@@ -87,7 +87,13 @@ teamctx join ssh://alice@<host-magicdns-name>
 
 You land directly in your own Claude Code session, on your own branch's worktree. On first connect Claude asks
 you to log in with **your own** Claude account (a URL + paste-back code) — teamctx never sees your
-credentials. From there the shared tools (`get_context`, `post_finding`, `claim_task`, …) and the
+credentials.
+
+The first connect also runs a one-time `gh auth login` so your commits and pushes are attributed to
+your own GitHub account (same paste-a-code flow; teamctx never holds the token) — you work on your own
+branch `teamctx/<you>` and share by pushing or opening a PR.
+
+From there the shared tools (`get_context`, `post_finding`, `claim_task`, …) and the
 auto-injected team digest just work.
 
 **Claude desktop app (optional):** instead of the terminal, add the host as an SSH connection in the

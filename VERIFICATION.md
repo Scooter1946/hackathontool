@@ -23,7 +23,8 @@ The privileged provisioning path is **gated** (`--execute`, root) and must be va
 
 1. **Shared context over real SSH.** SSH in as `alice`, post a finding in Claude Code; SSH in as `bob`
    and confirm the SessionStart digest already shows it and `get_context` returns the detail.
-   Confirm each user lands on their own branch (`git branch --show-current` → `teamctx/<user>`).
+   Confirm each user lands on their own branch (`git branch --show-current` → `teamctx/<user>`), that
+   `gh auth status` shows _their_ GitHub account, and a test commit is attributed to them.
 2. **Deny rules.** Create a canary file in the hoster's home. From a guest session, confirm the agent
    cannot read it — only `/team` (which holds the worktrees) is permitted (managed `additionalDirectories`).
 3. **ForceCommand escape.** `ssh alice@host /bin/bash` must **not** yield a shell — it lands in Claude

@@ -16,8 +16,10 @@ Code and never touches anyone's credentials.
   interactive shell, no arbitrary commands. TCP / agent / X11 forwarding and tunnels are disabled.
 - **Tailscale-only.** sshd is never exposed to the public internet; tailnet identity replaces
   passwords and keys.
-- **Own-account auth.** Everyone logs in with their own Claude plan; the server only ever sees an
-  `X-Teamctx-User` label derived from the Unix username, never a credential.
+- **Own-account auth.** Everyone logs in with their own Claude plan, and (via a one-time `gh auth
+login` on first connect) pushes to GitHub under their own account — each teammate's gh token lives
+  in their own 0700 home, so it is isolated and revocable per person. The context server only ever
+  sees an `X-Teamctx-User` label derived from the Unix username, never a credential.
 
 ## What it does NOT protect against
 
