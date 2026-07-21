@@ -47,6 +47,51 @@ Hoster's computer (macOS first, Linux second)
 Teammates: click invite link (join tailnet) → click ssh:// link → land inside Claude Code
 ```
 
+## Quickstart
+
+> `teamctx host` mutates the machine (creates users, edits sshd, writes system settings). It runs a
+> **safe dry-run by default** — rendering every file and printing every privileged command without
+> applying anything. Add `--execute` (as root) only on a host you mean to provision, ideally a VM.
+
+### Hoster
+
+```bash
+# Preview exactly what would be provisioned — writes nothing to the system:
+npx teamctx host --users alice,bob
+
+# Apply for real (root; validate on a throwaway VM first — see SECURITY.md):
+sudo teamctx host --users alice,bob --execute
+```
+
+`host` starts the MCP context server (supervised), stamps `/team`, creates locked-down guest
+accounts, writes machine-wide managed settings that pre-approve the context server, restricts the
+`teamctx` SSH group to Claude Code via `ForceCommand`, brings up Tailscale, and prints a per-teammate
+invite (tailnet step + `ssh://` link + QR code).
+
+Pause or remove hosting:
+
+```bash
+teamctx stop --execute                          # disable guest SSH + stop the server; keep all data
+teamctx teardown --users alice,bob --execute    # remove everything; archive /team to a tarball
+```
+
+### Teammate
+
+You only need the invite. Join the tailnet, then click the `ssh://` link or run:
+
+```bash
+teamctx join ssh://alice@<host-magicdns-name>
+```
+
+You land directly in your own Claude Code session, in your own worktree. On first connect Claude asks
+you to log in with **your own** Claude account (a URL + paste-back code) — teamctx never sees your
+credentials. From there the shared tools (`get_context`, `post_finding`, `claim_task`, …) and the
+auto-injected team digest just work.
+
+**Claude desktop app (optional):** instead of the terminal, add the host as an SSH connection in the
+app's environment dropdown for one-click reconnects. Claude Code executes on the host, so the same
+managed settings and isolation apply.
+
 ## HARD CONSTRAINTS — NOT ALLOWED (legal / ToS)
 
 Violating any of these invalidates the project. When in doubt, choose the design that
@@ -117,6 +162,15 @@ npm run lint        # eslint + prettier --check
 npm test            # vitest
 npm run build       # compile all packages
 ```
+
+## Security & verification
+
+teamctx's isolation is standard OS hardening — separate non-admin Unix users, `0700` homes, an sshd
+`ForceCommand` that drops guests straight into Claude Code with no shell and no forwarding, and
+machine-wide managed settings. Read **[SECURITY.md](SECURITY.md)** for the model and, importantly,
+what it does **not** protect against (a hostile teammate is still a process on your machine).
+**[VERIFICATION.md](VERIFICATION.md)** lists what CI checks automatically and the manual VM checklist
+for the privileged `--execute` path.
 
 ## Language / stack decision (Step 0)
 
