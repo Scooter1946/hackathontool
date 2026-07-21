@@ -7,8 +7,11 @@
  * `teamctx stop`     → pause hosting, keep data (Step 4)
  * `teamctx teardown` → remove users/sshd/settings; archive /team (Step 4)
  *
- * This scaffold only wires up command dispatch; the commands are implemented in later steps.
+ * This scaffold wires up command dispatch; the commands are implemented in later steps.
  */
+export { stampTeamFolder, TEMPLATE_DIR } from "./template.js";
+export type { StampResult } from "./template.js";
+
 export const COMMANDS = ["host", "join", "stop", "teardown"] as const;
 export type Command = (typeof COMMANDS)[number];
 

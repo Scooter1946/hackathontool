@@ -19,6 +19,9 @@ jobs:
           node-version: 20
           cache: npm
       - run: npm ci
+      # Build first: @teamctx/cli imports @teamctx/server, so the server's dist must exist
+      # before the cli is typechecked or tested.
+      - run: npm run build
       - run: npm run lint
       - run: npm run typecheck
       - run: npm test

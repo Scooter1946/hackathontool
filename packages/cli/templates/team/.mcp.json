@@ -1,0 +1,11 @@
+{
+  "mcpServers": {
+    "teamctx": {
+      "type": "http",
+      "url": "http://127.0.0.1:${TEAMCTX_PORT:-4517}/mcp",
+      "headers": {
+        "X-Teamctx-User": "${TEAMCTX_USER:-unknown}"
+      }
+    }
+  }
+}
