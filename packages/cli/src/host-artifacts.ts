@@ -78,28 +78,29 @@ export function renderSshdMatchBlock(o: ArtifactOptions): string {
 
 /**
  * The ForceCommand shell. Guests never reach an interactive prompt: it exec()s Claude Code in the
- * user's worktree and ignores whatever command the SSH client requested, so there is no escape.
+ * shared working tree and ignores whatever command the SSH client requested, so there is no escape.
  * Lines containing bash ${vars} are plain JS strings (not template literals) to keep them literal.
  */
 export function renderTeamctxShell(o: ArtifactOptions): string {
   return [
     "#!/bin/bash",
     "# teamctx ForceCommand shell — set as ForceCommand for the teamctx group in sshd_config.",
-    "# Guests never get an interactive shell: this exec()s Claude Code in their worktree and",
+    "# Guests never get an interactive shell: this exec()s Claude Code in the shared tree and",
     "# ignores any command the SSH client requested, so there is no shell escape.",
     "set -euo pipefail",
     "",
     'USER_NAME="$(id -un)"',
     `TEAM_DIR="${o.teamDir}"`,
-    'WORKTREE="${TEAM_DIR}/worktrees/${USER_NAME}"',
+    "# Everyone shares one working tree — same files, same time (no per-user isolation).",
+    'WORKDIR="${TEAM_DIR}/repo"',
     "",
     'export TEAMCTX_USER="${USER_NAME}"',
     `export TEAMCTX_PORT="${o.port}"`,
     "",
-    'if [ ! -d "${WORKTREE}" ]; then',
-    '  WORKTREE="${TEAM_DIR}"',
+    'if [ ! -d "${WORKDIR}" ]; then',
+    '  WORKDIR="${TEAM_DIR}"',
     "fi",
-    'cd "${WORKTREE}"',
+    'cd "${WORKDIR}"',
     "",
     'FLAG="${HOME}/.teamctx-welcomed"',
     'if [ ! -f "${FLAG}" ]; then',

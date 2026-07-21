@@ -10,9 +10,9 @@ Code and never touches anyone's credentials.
   additionally deny `sudo`/`su`.
 - **`0700` home directories.** Guests cannot read each other's or the hoster's home (OS permissions).
 - **Shared work only in `/team`.** The `teamctx` group owns `/team` (setgid); Claude Code's managed
-  `additionalDirectories` grants access to `/team` and the per-user worktree — and nothing else.
+  `additionalDirectories` grants access to `/team` (the shared working tree) — and nothing else.
 - **`ForceCommand` shell.** The `teamctx` SSH group is pinned to `/usr/local/bin/teamctx-shell`, which
-  `exec`s Claude Code in the user's worktree and ignores any command the client requested — no
+  `exec`s Claude Code in the shared tree and ignores any command the client requested — no
   interactive shell, no arbitrary commands. TCP / agent / X11 forwarding and tunnels are disabled.
 - **Tailscale-only.** sshd is never exposed to the public internet; tailnet identity replaces
   passwords and keys.

@@ -39,9 +39,9 @@ Hoster's computer (macOS first, Linux second)
 │   ├── .mcp.json                 ← points every session at the localhost MCP server
 │   ├── .claude/settings.json     ← SessionStart hook → injects team digest
 │   ├── .claude/hooks/…           ← hook scripts
-│   └── repo/ + worktrees/<user>/ ← per-user git worktrees to avoid file conflicts
+│   └── repo/                     ← one shared working tree (same files for everyone)
 ├── /etc/claude-code/managed-settings.json  ← fixed folders + deny rules, machine-wide
-├── sshd: Match Group teamctx → ForceCommand launch script (cd worktree, exec claude)
+├── sshd: Match Group teamctx → ForceCommand launch script (cd /team/repo, exec claude)
 └── Tailscale: `tailscale up --ssh`, ACL: tailnet members → ssh as their unix user
 
 Teammates: click invite link (join tailnet) → click ssh:// link → land inside Claude Code
@@ -83,7 +83,7 @@ You only need the invite. Join the tailnet, then click the `ssh://` link or run:
 teamctx join ssh://alice@<host-magicdns-name>
 ```
 
-You land directly in your own Claude Code session, in your own worktree. On first connect Claude asks
+You land directly in your own Claude Code session, in the shared working tree. On first connect Claude asks
 you to log in with **your own** Claude account (a URL + paste-back code) — teamctx never sees your
 credentials. From there the shared tools (`get_context`, `post_finding`, `claim_task`, …) and the
 auto-injected team digest just work.

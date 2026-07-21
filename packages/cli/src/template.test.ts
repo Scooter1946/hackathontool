@@ -25,7 +25,7 @@ describe("stampTeamFolder", () => {
     dir = undefined;
   });
 
-  it("stamps the config files and worktree layout", () => {
+  it("stamps the config files and the shared working tree", () => {
     dir = mkdtempSync(resolve(tmpdir(), "teamctx-"));
     const teamDir = resolve(dir, "team");
     const result = stampTeamFolder(teamDir);
@@ -47,7 +47,6 @@ describe("stampTeamFolder", () => {
     expect(settings.hooks.SessionStart.length).toBeGreaterThan(0);
 
     expect(existsSync(result.repoDir)).toBe(true);
-    expect(existsSync(result.worktreesDir)).toBe(true);
   });
 
   it("runs the SessionStart hook end-to-end against a live server", async () => {
