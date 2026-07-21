@@ -6,6 +6,13 @@ import { dirname, join, resolve } from "node:path";
 import { promisify } from "node:util";
 import QRCode from "qrcode";
 import * as A from "./host-artifacts.js";
+import {
+  defaultLog,
+  executePlanItems,
+  type PlanFile,
+  type PlanItem,
+  writePlanDryRun,
+} from "./plan.js";
 import { preflight, type ToolStatus } from "./preflight.js";
 import { stampTeamFolder } from "./template.js";
 
@@ -27,23 +34,6 @@ export interface HostResult {
   writtenFiles: string[];
   preflight: ToolStatus[];
   invites: string[];
-}
-
-interface PlanFile {
-  path: string;
-  content: string;
-  mode?: number;
-}
-
-interface PlanItem {
-  id: string;
-  title: string;
-  files: PlanFile[];
-  commands: A.Command[];
-}
-
-function defaultLog(line: string): void {
-  process.stdout.write(`${line}\n`);
 }
 
 /** Resolve the compiled context-server entry point (packages/server/dist/main.js). */
@@ -237,28 +227,14 @@ async function executePlan(
   log(
     "!!! EXECUTE MODE — this mutates the machine (sshd, users, system settings). Ctrl-C now if unsure.",
   );
-
   stampTeamFolder(o.teamDir);
-  const written: string[] = [];
-  for (const item of buildPlan(o, ao)) {
-    log(`# ${item.title}`);
-    for (const f of item.files) {
-      mkdirSync(dirname(f.path), { recursive: true });
-      writeFileSync(f.path, f.content, { mode: f.mode ?? 0o644 });
-      written.push(f.path);
-    }
-    for (const c of item.commands) {
-      await execFileAsync(c.argv[0], c.argv.slice(1));
-    }
-  }
-
+  const written = await executePlanItems(buildPlan(o, ao), log);
   await execFileAsync("tailscale", ["up", "--ssh"]).catch(() =>
     log("tailscale up failed — run `tailscale up --ssh` manually"),
   );
   if (o.platform === "darwin") {
     spawn("caffeinate", ["-dimsu"], { detached: true, stdio: "ignore" }).unref();
   }
-
   return {
     dryRun: false,
     writtenFiles: written,
@@ -298,23 +274,7 @@ export async function runHost(
   log(`Stamped the team-folder template under ${stampTarget}`);
   log("");
 
-  const written: string[] = [];
-  for (const item of buildPlan(o, ao)) {
-    log(`# ${item.title}`);
-    for (const f of item.files) {
-      const rendered = join(o.prefix, f.path);
-      mkdirSync(dirname(rendered), { recursive: true });
-      writeFileSync(rendered, f.content, { mode: f.mode ?? 0o644 });
-      written.push(f.path);
-      log(
-        `  would write ${f.path} (${Buffer.byteLength(f.content)} bytes) → rendered at ${rendered}`,
-      );
-    }
-    for (const c of item.commands) {
-      log(`  would run: ${c.sudo ? "sudo " : ""}${c.argv.join(" ")}   # ${c.description}`);
-    }
-    log("");
-  }
+  const written = writePlanDryRun(buildPlan(o, ao), o.prefix, log);
 
   log("# Networking + keep-awake");
   log("  would run: tailscale up --ssh   # Tailscale-only connectivity (no public sshd)");

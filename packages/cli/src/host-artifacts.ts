@@ -55,8 +55,9 @@ export function renderManagedSettings(o: ArtifactOptions): Record<string, unknow
   };
 }
 
-export const SSHD_BEGIN = "# >>> teamctx (managed; 'teamctx teardown' removes this block) >>>";
-export const SSHD_END = "# <<< teamctx <<<";
+// Shell-safe sentinels (no quotes/parens): they are embedded in grep/awk commands.
+export const SSHD_BEGIN = "# >>> teamctx managed block - teamctx teardown removes this >>>";
+export const SSHD_END = "# <<< teamctx managed block <<<";
 
 /** sshd Match block: restrict the teamctx group to the ForceCommand shell, no forwarding/tunnels. */
 export function renderSshdMatchBlock(o: ArtifactOptions): string {

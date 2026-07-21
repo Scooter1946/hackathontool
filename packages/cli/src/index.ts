@@ -2,17 +2,30 @@
 /**
  * teamctx — the provisioner CLI.
  *
- * `teamctx host`     → provision everything, print invites (Step 3; dry-run by default)
- * `teamctx join`     → teammate-side convenience: join tailnet, open ssh:// link (Step 4)
- * `teamctx stop`     → pause hosting, keep data (Step 4)
- * `teamctx teardown` → remove users/sshd/settings; archive /team (Step 4)
+ * `teamctx host`     → provision everything, print invites (dry-run by default)
+ * `teamctx join`     → teammate-side convenience: join tailnet, open the ssh:// link
+ * `teamctx stop`     → pause hosting, keep data
+ * `teamctx teardown` → remove users/sshd/settings; archive /team
+ *
+ * host / stop / teardown are dry-run by default; add --execute (root) to apply for real.
  */
 export { stampTeamFolder, TEMPLATE_DIR } from "./template.js";
 export type { StampResult } from "./template.js";
-export { runHost, parseHostArgs, buildPlan } from "./host.js";
+export { buildPlan, parseHostArgs, runHost } from "./host.js";
 export type { HostOptions, HostResult } from "./host.js";
+export {
+  buildJoinPlan,
+  buildStopPlan,
+  buildTeardownPlan,
+  parseLifecycleArgs,
+  runJoin,
+  runStop,
+  runTeardown,
+} from "./lifecycle.js";
+export type { LifecycleOptions, LifecycleResult } from "./lifecycle.js";
 
 import { parseHostArgs, runHost } from "./host.js";
+import { parseLifecycleArgs, runJoin, runStop, runTeardown } from "./lifecycle.js";
 
 export const COMMANDS = ["host", "join", "stop", "teardown"] as const;
 export type Command = (typeof COMMANDS)[number];
@@ -27,12 +40,14 @@ usage: teamctx <command> [options]
 
 commands:
   host       provision this machine as the team server and print invites
-             (dry-run by default; add --execute to actually apply, root only)
              options: --users <a,b,...>  --team-dir <path>  --port <n>
                       --prefix <dir>  --magic-dns <name>  --execute
-  join       join a team as a teammate (Tailscale + ssh)
-  stop       pause hosting (keep data)
+  join       join a team as a teammate: teamctx join ssh://<user>@<host>
+  stop       pause hosting (keep data)      options: --team-dir <path>  --execute
   teardown   remove everything teamctx added; archive /team
+             options: --users <a,b,...>  --team-dir <path>  --archive <path>  --execute
+
+host / stop / teardown default to a safe dry-run; add --execute (root) to apply.
 `;
 
 export async function main(argv: string[]): Promise<number> {
@@ -50,14 +65,21 @@ export async function main(argv: string[]): Promise<number> {
       case "host":
         await runHost(parseHostArgs(rest));
         return 0;
-      default:
-        process.stdout.write(`teamctx ${cmd}: not implemented yet\n`);
+      case "join":
+        await runJoin(parseLifecycleArgs(rest));
+        return 0;
+      case "stop":
+        await runStop(parseLifecycleArgs(rest));
+        return 0;
+      case "teardown":
+        await runTeardown(parseLifecycleArgs(rest));
         return 0;
     }
   } catch (err) {
     process.stderr.write(`teamctx ${cmd}: ${err instanceof Error ? err.message : String(err)}\n`);
     return 1;
   }
+  return 0;
 }
 
 // Run only when executed directly, not when imported by tests.
