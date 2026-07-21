@@ -1,19 +1,23 @@
 /**
- * @teamctx/server — the MCP context server.
+ * @teamctx/server — the MCP context server (the product core).
  *
- * This is the product core: a team-wide memory shared across different humans' Claude Code
- * agents. Step 1 implements the Streamable HTTP transport, SQLite storage, and the tool set
- * (post_finding, get_context, log_decision, claim_task/release_task/list_tasks, get_digest).
- *
- * For now this module only exposes server identity so the scaffold has something to test.
+ * A team-wide memory shared across different humans' Claude Code agents: agents post findings,
+ * log decisions, and coordinate a lightweight task board through MCP tools over a loopback HTTP
+ * transport, persisted in SQLite.
  */
-export const SERVER_NAME = "teamctx-context-server";
-
-export interface ServerInfo {
-  name: string;
-  version: string;
-}
-
-export function serverInfo(): ServerInfo {
-  return { name: SERVER_NAME, version: "0.0.0" };
-}
+export { Storage } from "./db.js";
+export type {
+  Finding,
+  Decision,
+  TeamTask,
+  TaskStatus,
+  ContextQuery,
+  DigestData,
+  StorageOptions,
+} from "./db.js";
+export { createContextServer, SERVER_NAME, SERVER_VERSION } from "./server.js";
+export { createApp, startServer, sanitizeIdentity, IDENTITY_HEADER } from "./http.js";
+export type { RunningServer } from "./http.js";
+export { loadConfig } from "./config.js";
+export type { ServerConfig } from "./config.js";
+export { formatDigest } from "./digest.js";

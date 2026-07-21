@@ -9,7 +9,7 @@
     "teamctx": "dist/index.js"
   },
   "scripts": {
-    "build": "tsc",
+    "build": "tsc -p tsconfig.build.json",
     "typecheck": "tsc --noEmit"
   }
 }
