@@ -23,9 +23,19 @@ export {
   runTeardown,
 } from "./lifecycle.js";
 export type { LifecycleOptions, LifecycleResult } from "./lifecycle.js";
+export {
+  collectHostOptions,
+  defaultWizardDeps,
+  hostCommandLine,
+  makeStdioWizardIO,
+  runHostWizard,
+  summarizePreflight,
+} from "./wizard.js";
+export type { WizardDeps, WizardIO } from "./wizard.js";
 
 import { parseHostArgs, runHost } from "./host.js";
 import { parseLifecycleArgs, runJoin, runStop, runTeardown } from "./lifecycle.js";
+import { defaultWizardDeps, makeStdioWizardIO, runHostWizard } from "./wizard.js";
 
 export const COMMANDS = ["host", "join", "stop", "teardown"] as const;
 export type Command = (typeof COMMANDS)[number];
@@ -40,8 +50,9 @@ usage: teamctx <command> [options]
 
 commands:
   host       provision this machine as the team server and print invites
+             run with no options (or -i) for an interactive setup wizard
              options: --users <a,b,...>  --team-dir <path>  --port <n>
-                      --prefix <dir>  --magic-dns <name>  --execute
+                      --prefix <dir>  --magic-dns <name>  --repo <url>  --execute
   join       join a team as a teammate: teamctx join ssh://<user>@<host>
   stop       pause hosting (keep data)      options: --team-dir <path>  --execute
   teardown   remove everything teamctx added; archive /team
@@ -62,9 +73,28 @@ export async function main(argv: string[]): Promise<number> {
   }
   try {
     switch (cmd) {
-      case "host":
+      case "host": {
+        const wantsWizard =
+          rest.length === 0 || rest.includes("-i") || rest.includes("--interactive");
+        if (wantsWizard) {
+          if (!process.stdin.isTTY) {
+            process.stderr.write(
+              "teamctx host: interactive setup needs a terminal. Pass options directly, e.g.\n" +
+                "  teamctx host --users alice,bob --repo <url>              # dry-run\n" +
+                "  sudo teamctx host --users alice,bob --repo <url> --execute\n",
+            );
+            return 1;
+          }
+          const io = makeStdioWizardIO();
+          try {
+            return await runHostWizard(io, defaultWizardDeps());
+          } finally {
+            io.close?.();
+          }
+        }
         await runHost(parseHostArgs(rest));
         return 0;
+      }
       case "join":
         await runJoin(parseLifecycleArgs(rest));
         return 0;

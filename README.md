@@ -55,6 +55,17 @@ Teammates: click invite link (join tailnet) → click ssh:// link → land insid
 
 ### Hoster
 
+The fastest start is the **interactive wizard** — run `teamctx host` with no flags. It checks your
+tools (preflight), asks for the repo and teammate usernames, renders the full dry-run for you to
+review, and then prints the exact `sudo … --execute` command to apply (or applies it directly if
+you're already root):
+
+```bash
+teamctx host                 # interactive setup wizard — safe dry-run, prints the apply command
+```
+
+Prefer flags? Drive it non-interactively:
+
 ```bash
 # Preview exactly what would be provisioned — writes nothing to the system:
 npx teamctx host --users alice,bob --repo https://github.com/you/project.git

@@ -19,4 +19,11 @@ describe("cli command dispatch", () => {
   it("exits 1 on an unknown command", async () => {
     expect(await main(["frobnicate"])).toBe(1);
   });
+
+  it("exits 1 when `host` would start the wizard with no terminal attached", async () => {
+    // The wizard needs a TTY; under the test runner stdin isn't one, so `host` (no args)
+    // must fall through to the guidance message instead of blocking on readline.
+    expect(process.stdin.isTTY).toBeFalsy();
+    expect(await main(["host"])).toBe(1);
+  });
 });
