@@ -22,7 +22,10 @@ async function isPresent(bin: string): Promise<boolean> {
 }
 
 /** Report the tools `teamctx host` relies on. Nothing here mutates the machine. */
-export async function preflight(platform: Platform): Promise<ToolStatus[]> {
+export async function preflight(
+  platform: Platform,
+  opts: { requireDocker?: boolean } = {},
+): Promise<ToolStatus[]> {
   const wanted: Omit<ToolStatus, "present">[] = [
     { tool: "node", required: true, hint: "install Node 20+" },
     { tool: "git", required: true, hint: "install git (per-user worktrees)" },
@@ -45,7 +48,13 @@ export async function preflight(platform: Platform): Promise<ToolStatus[]> {
           : "https://tailscale.com/download",
     },
     { tool: "curl", required: true, hint: "install curl (the SessionStart hook uses it)" },
-    { tool: "docker", required: false, hint: "optional — only if you run the server in Docker" },
+    {
+      tool: "docker",
+      required: opts.requireDocker ?? false,
+      hint: opts.requireDocker
+        ? "required for --isolation container (Docker Desktop / OrbStack)"
+        : "optional — only if you run the server in Docker",
+    },
   ];
   const results: ToolStatus[] = [];
   for (const w of wanted) {

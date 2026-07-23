@@ -5,6 +5,7 @@ import { homedir, hostname, tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { promisify } from "node:util";
 import QRCode from "qrcode";
+import * as C from "./container-artifacts.js";
 import * as A from "./host-artifacts.js";
 import {
   defaultLog,
@@ -27,6 +28,10 @@ export interface HostOptions {
   prefix: string;
   magicDnsName: string;
   repoUrl?: string;
+  /** "host" runs Claude directly on the machine; "container" jails each session in a Linux box. */
+  isolation: C.Isolation;
+  /** Extra host paths exposed into the box (container mode only); /team is always mounted. */
+  exposes: C.Expose[];
 }
 
 export interface HostResult {
@@ -52,6 +57,8 @@ export function parseHostArgs(argv: string[]): HostOptions {
   let prefix = "";
   let magicDnsName = "";
   let repoUrl: string | undefined;
+  let isolation: C.Isolation = "host";
+  const exposes: C.Expose[] = [];
 
   for (let i = 0; i < argv.length; i++) {
     const arg = argv[i];
@@ -77,6 +84,17 @@ export function parseHostArgs(argv: string[]): HostOptions {
       case "--repo":
         repoUrl = argv[++i];
         break;
+      case "--isolation": {
+        const value = argv[++i];
+        if (value !== "host" && value !== "container") {
+          throw new Error("--isolation must be 'host' or 'container'");
+        }
+        isolation = value;
+        break;
+      }
+      case "--expose":
+        exposes.push(C.parseExpose(argv[++i] ?? ""));
+        break;
       case "--execute":
         dryRun = false;
         break;
@@ -91,7 +109,18 @@ export function parseHostArgs(argv: string[]): HostOptions {
   const platform: A.Platform = process.platform === "linux" ? "linux" : "darwin";
   if (!prefix) prefix = resolve(tmpdir(), "teamctx-dryrun");
   if (!magicDnsName) magicDnsName = hostname();
-  return { users, teamDir, port, platform, dryRun, prefix, magicDnsName, repoUrl };
+  return {
+    users,
+    teamDir,
+    port,
+    platform,
+    dryRun,
+    prefix,
+    magicDnsName,
+    repoUrl,
+    isolation,
+    exposes,
+  };
 }
 
 function artifactOptions(o: HostOptions): A.ArtifactOptions {
@@ -111,8 +140,172 @@ function artifactOptions(o: HostOptions): A.ArtifactOptions {
   };
 }
 
+/** Container-mode options, derived from the host options + fixed defaults. */
+function containerOptions(o: HostOptions): C.ContainerOptions {
+  return {
+    image: C.CONTAINER_DEFAULTS.image,
+    containerName: C.CONTAINER_DEFAULTS.containerName,
+    port: o.port,
+    group: A.DEFAULTS.group,
+    teamDir: o.teamDir,
+    homesDir: C.CONTAINER_DEFAULTS.homesDir,
+    exposes: o.exposes,
+    users: o.users,
+    enterPath: C.CONTAINER_DEFAULTS.enterPath,
+    bridgePath: C.CONTAINER_DEFAULTS.bridgePath,
+    containerShellPath: C.CONTAINER_DEFAULTS.containerShellPath,
+  };
+}
+
+/**
+ * Container isolation plan. Teammates still SSH to the host, but land (via a scoped-sudo bridge) in
+ * one long-lived Linux box that mounts only /team + private per-user homes — a hard filesystem jail.
+ * The host installs no managed settings or launchd server here: managed settings are baked into the
+ * image, and the box (with `--restart`) supervises the context server itself.
+ */
+function buildContainerPlan(
+  o: HostOptions,
+  ao: A.ArtifactOptions,
+  co: C.ContainerOptions,
+): PlanItem[] {
+  const sshdSnippet = join(ao.dataDir, "sshd_teamctx.conf");
+  const serverDir = resolve(dirname(ao.serverEntry), ".."); // …/packages/server
+  const repoRoot = resolve(serverDir, "..", ".."); // monorepo root
+  const ctx = "/var/lib/teamctx/box-build";
+
+  const sshdReload: A.Command =
+    o.platform === "darwin"
+      ? {
+          argv: ["launchctl", "kickstart", "-k", "system/com.openssh.sshd"],
+          sudo: true,
+          description: "reload sshd (macOS)",
+        }
+      : { argv: ["systemctl", "reload", "ssh"], sudo: true, description: "reload sshd (Linux)" };
+
+  const userCommands: A.Command[] = [];
+  for (const user of o.users) userCommands.push(...A.userCommands(ao, user));
+
+  return [
+    {
+      id: "group",
+      title: `Create the '${co.group}' group`,
+      files: [],
+      commands: A.groupCommands(ao),
+    },
+    {
+      id: "users",
+      title: `Create guest users: ${o.users.join(", ")}`,
+      files: [],
+      commands: userCommands,
+    },
+    {
+      id: "repo",
+      title: `Attach the shared git repo at ${o.teamDir}/repo`,
+      files: [],
+      commands: A.repoSetupCommands(ao),
+    },
+    {
+      id: "teamdir",
+      title: `Group-own and setgid ${o.teamDir}`,
+      files: [],
+      commands: A.teamDirCommands(ao),
+    },
+    {
+      id: "homes",
+      title: `Create the private per-user homes dir (${co.homesDir})`,
+      files: [],
+      commands: [
+        {
+          argv: ["mkdir", "-p", co.homesDir],
+          sudo: true,
+          description: `create ${co.homesDir} (per-user 0700 homes, outside /team)`,
+        },
+      ],
+    },
+    {
+      id: "box-image",
+      title: `Build the jail image (${co.image})`,
+      files: [
+        { path: join(ctx, "Dockerfile"), content: C.renderContainerfile(co) },
+        { path: join(ctx, "entrypoint.sh"), content: C.renderContainerEntrypoint(co), mode: 0o755 },
+        { path: join(ctx, "teamctx-shell"), content: A.renderTeamctxShell(ao), mode: 0o755 },
+        {
+          path: join(ctx, "managed-settings.json"),
+          content: `${JSON.stringify(A.renderManagedSettings(ao), null, 2)}\n`,
+        },
+      ],
+      commands: [
+        {
+          argv: ["bash", "-c", `mkdir -p '${ctx}/packages'`],
+          sudo: true,
+          description: "prepare the docker build context",
+        },
+        {
+          argv: [
+            "bash",
+            "-c",
+            `cp '${repoRoot}/package.json' '${repoRoot}/package-lock.json' '${ctx}/'`,
+          ],
+          sudo: true,
+          description: "copy workspace manifests into the build context",
+        },
+        {
+          argv: ["bash", "-c", `cp -r '${serverDir}' '${ctx}/packages/server'`],
+          sudo: true,
+          description: "copy the server source into the build context",
+        },
+        {
+          argv: ["docker", "build", "-t", co.image, ctx],
+          sudo: true,
+          description: `build the jail image ${co.image}`,
+        },
+      ],
+    },
+    {
+      id: "box-run",
+      title: `Start the jail container (${co.containerName})`,
+      files: [],
+      commands: [
+        {
+          argv: ["docker", ...C.renderContainerCreateArgs(co)],
+          sudo: true,
+          description: "run the box (only /team + private homes mounted; no docker socket)",
+        },
+      ],
+    },
+    {
+      id: "bridge",
+      title: `Install the host bridge + enter script (${co.enterPath})`,
+      files: [
+        { path: co.bridgePath, content: C.renderHostBridge(co), mode: 0o755 },
+        { path: co.enterPath, content: C.renderEnterScript(co), mode: 0o755 },
+        { path: "/etc/sudoers.d/teamctx", content: C.renderSudoersEntry(co), mode: 0o440 },
+      ],
+      commands: [],
+    },
+    {
+      id: "sshd",
+      title: "Configure sshd (Match Group block; Tailscale-only)",
+      files: [{ path: sshdSnippet, content: A.renderSshdMatchBlock(ao) }],
+      commands: [
+        {
+          argv: [
+            "bash",
+            "-c",
+            `grep -qF '${A.SSHD_BEGIN}' /etc/ssh/sshd_config || cat '${sshdSnippet}' >> /etc/ssh/sshd_config`,
+          ],
+          sudo: true,
+          description: "append the teamctx Match block to sshd_config (idempotent)",
+        },
+        sshdReload,
+      ],
+    },
+  ];
+}
+
 /** The ordered set of file installs + privileged commands a real `teamctx host` would perform. */
 export function buildPlan(o: HostOptions, ao: A.ArtifactOptions): PlanItem[] {
+  if (o.isolation === "container") return buildContainerPlan(o, ao, containerOptions(o));
   const managedPath = A.MANAGED_SETTINGS_PATH[o.platform];
   const sshdSnippet = join(ao.dataDir, "sshd_teamctx.conf");
 
@@ -265,14 +458,22 @@ export async function runHost(
 ): Promise<HostResult> {
   if (o.users.length === 0) throw new Error("teamctx host requires --users <alice,bob,...>");
   const ao = artifactOptions(o);
-  const pf = await preflight(o.platform);
+  const pf = await preflight(o.platform, { requireDocker: o.isolation === "container" });
 
   if (!o.dryRun) return executePlan(o, ao, pf, log);
 
   log(`teamctx host — DRY RUN (${o.platform})`);
-  log(`  users:   ${o.users.join(", ")}`);
-  log(`  teamDir: ${o.teamDir}`);
-  log(`  port:    ${o.port}`);
+  log(`  users:     ${o.users.join(", ")}`);
+  log(`  teamDir:   ${o.teamDir}`);
+  log(`  port:      ${o.port}`);
+  log(
+    `  isolation: ${o.isolation}${o.isolation === "container" ? " (jailed in a Linux box)" : ""}`,
+  );
+  if (o.isolation === "container" && o.exposes.length > 0) {
+    log(
+      `  expose:    ${o.exposes.map((e) => `${e.host}→${e.container}${e.readOnly ? ":ro" : ""}`).join(", ")}`,
+    );
+  }
   log("");
   log("Preflight:");
   for (const c of pf) {

@@ -53,10 +53,13 @@ commands:
              run with no options (or -i) for an interactive setup wizard
              options: --users <a,b,...>  --team-dir <path>  --port <n>
                       --prefix <dir>  --magic-dns <name>  --repo <url>  --execute
+                      --isolation host|container   (container = jail each session in a Linux box)
+                      --expose <host[:box][:ro]>   (container mode: extra folders to expose)
   join       join a team as a teammate: teamctx join ssh://<user>@<host>
-  stop       pause hosting (keep data)      options: --team-dir <path>  --execute
+  stop       pause hosting (keep data)      options: --team-dir <path>  --isolation <mode>  --execute
   teardown   remove everything teamctx added; archive /team
-             options: --users <a,b,...>  --team-dir <path>  --archive <path>  --execute
+             options: --users <a,b,...>  --team-dir <path>  --archive <path>
+                      --isolation <mode>  --execute
 
 host / stop / teardown default to a safe dry-run; add --execute (root) to apply.
 `;

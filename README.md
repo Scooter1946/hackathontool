@@ -74,6 +74,12 @@ npx teamctx host --users alice,bob --repo https://github.com/you/project.git
 sudo teamctx host --users alice,bob --repo https://github.com/you/project.git --execute
 ```
 
+**Hard isolation (optional):** add `--isolation container` to run every teammate's session inside a
+single Linux "box" container that mounts only `/team` (plus any `--expose <host>[:box][:ro]`). From
+inside, `ls /` shows nothing of the host — a real OS boundary, not just an agent guardrail. Needs
+Docker or OrbStack on the host; `stop` / `teardown` take the same `--isolation container` flag. The
+default `host` mode runs Claude directly on the machine with the standard Unix-user isolation.
+
 `host` starts the MCP context server (supervised), clones your repo into `/team/repo`, stamps
 `/team`, creates locked-down guest accounts, writes machine-wide managed settings that pre-approve
 the context server, restricts the `teamctx` SSH group to Claude Code via `ForceCommand`, brings up

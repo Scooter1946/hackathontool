@@ -18,6 +18,8 @@ const baseOptions = (over: Partial<HostOptions> = {}): HostOptions => ({
   dryRun: true,
   prefix: "/tmp/teamctx-dryrun",
   magicDnsName: "host.ts.net",
+  isolation: "host",
+  exposes: [],
   ...over,
 });
 
@@ -85,6 +87,12 @@ describe("collectHostOptions", () => {
     const o = await collectHostOptions(io, baseOptions());
     expect(o).toBeNull();
   });
+
+  it("records container isolation when the user opts in", async () => {
+    const { io } = scriptedIO(["", "alice", "", "y"]); // repo, users, port, jail=y
+    const o = await collectHostOptions(io, baseOptions());
+    expect(o?.isolation).toBe("container");
+  });
 });
 
 describe("hostCommandLine", () => {
@@ -99,6 +107,18 @@ describe("hostCommandLine", () => {
     const cmd = hostCommandLine(baseOptions({ users: ["a"], port: 5000, teamDir: "/srv/team" }));
     expect(cmd).toContain("--port 5000");
     expect(cmd).toContain("--team-dir /srv/team");
+  });
+
+  it("adds --isolation container and --expose flags in container mode", () => {
+    const cmd = hostCommandLine(
+      baseOptions({
+        users: ["a"],
+        isolation: "container",
+        exposes: [{ host: "/d", container: "/data", readOnly: true }],
+      }),
+    );
+    expect(cmd).toContain("--isolation container");
+    expect(cmd).toContain("--expose /d:/data:ro");
   });
 });
 
@@ -121,7 +141,8 @@ describe("summarizePreflight", () => {
 
 describe("runHostWizard", () => {
   it("declining apply prints the ready-to-run sudo command and never executes", async () => {
-    const { io, out } = scriptedIO(["https://github.com/you/p.git", "alice,bob", "", "n"]);
+    // answers: repo, users, port, jail, apply
+    const { io, out } = scriptedIO(["https://github.com/you/p.git", "alice,bob", "", "n", "n"]);
     const { deps, calls } = fakeDeps();
     const code = await runHostWizard(io, deps);
     expect(code).toBe(0);
@@ -137,7 +158,8 @@ describe("runHostWizard", () => {
   });
 
   it("accepting apply without root prints the sudo command instead of executing", async () => {
-    const { io, out } = scriptedIO(["", "alice", "", "y"]);
+    // repo, users, port, jail=n, apply=y
+    const { io, out } = scriptedIO(["", "alice", "", "n", "y"]);
     const { deps, calls } = fakeDeps({ root: false });
     await runHostWizard(io, deps);
     expect(calls).toHaveLength(1); // dry-run only
@@ -146,7 +168,8 @@ describe("runHostWizard", () => {
   });
 
   it("accepting apply as root executes for real", async () => {
-    const { io } = scriptedIO(["", "alice", "", "y"]);
+    // repo, users, port, jail=n, apply=y
+    const { io } = scriptedIO(["", "alice", "", "n", "y"]);
     const { deps, calls } = fakeDeps({ root: true });
     await runHostWizard(io, deps);
     expect(calls).toHaveLength(2);
@@ -165,7 +188,8 @@ describe("runHostWizard", () => {
   });
 
   it("continues past a missing-tools warning when the user says yes", async () => {
-    const { io } = scriptedIO(["y", "", "alice", "", "n"]);
+    // continue=y, then repo, users, port, jail, apply
+    const { io } = scriptedIO(["y", "", "alice", "", "n", "n"]);
     const { deps, calls } = fakeDeps({
       pf: [{ tool: "gh", present: false, required: true, hint: "install gh" }],
     });

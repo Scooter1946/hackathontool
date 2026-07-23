@@ -13,7 +13,7 @@ import {
   renderTeamctxShell,
   userCommands,
 } from "./host-artifacts.js";
-import { parseHostArgs, runHost } from "./host.js";
+import { buildPlan, parseHostArgs, runHost } from "./host.js";
 
 const ao = (over: Partial<ArtifactOptions> = {}): ArtifactOptions => ({
   teamDir: "/team",
@@ -85,6 +85,60 @@ describe("parseHostArgs", () => {
     expect(parseHostArgs(["--users", "a", "--execute"]).dryRun).toBe(false);
     expect(() => parseHostArgs(["--nope"])).toThrow();
   });
+
+  it("reads --isolation container and repeatable --expose", () => {
+    const o = parseHostArgs([
+      "--users",
+      "alice",
+      "--isolation",
+      "container",
+      "--expose",
+      "/srv/data:/data:ro",
+    ]);
+    expect(o.isolation).toBe("container");
+    expect(o.exposes).toEqual([{ host: "/srv/data", container: "/data", readOnly: true }]);
+  });
+
+  it("defaults isolation to host and rejects an invalid value", () => {
+    expect(parseHostArgs(["--users", "a"]).isolation).toBe("host");
+    expect(() => parseHostArgs(["--users", "a", "--isolation", "vm"])).toThrow(/isolation/);
+  });
+});
+
+describe("buildPlan — container isolation", () => {
+  const plan = buildPlan(
+    parseHostArgs([
+      "--users",
+      "alice,bob",
+      "--isolation",
+      "container",
+      "--repo",
+      "https://x/y.git",
+    ]),
+    ao(),
+  );
+  const files = plan.flatMap((i) => i.files.map((f) => f.path));
+  const cmds = plan.flatMap((i) => i.commands.map((c) => c.argv.join(" ")));
+
+  it("builds and runs the jail container", () => {
+    expect(cmds.some((c) => c.startsWith("docker build"))).toBe(true);
+    expect(cmds.some((c) => c.startsWith("docker run"))).toBe(true);
+  });
+
+  it("bakes managed settings into the image, not onto the host", () => {
+    expect(files.some((f) => f.endsWith("box-build/managed-settings.json"))).toBe(true);
+    expect(files).not.toContain(MANAGED_SETTINGS_PATH.darwin);
+  });
+
+  it("installs the host bridge, enter script, and a scoped sudoers rule", () => {
+    expect(files).toContain("/usr/local/bin/teamctx-enter");
+    expect(files).toContain("/etc/sudoers.d/teamctx");
+  });
+
+  it("never mounts the Docker socket and still configures sshd", () => {
+    expect(cmds.join(" ")).not.toContain("docker.sock");
+    expect(cmds.some((c) => c.includes("sshd_config"))).toBe(true);
+  });
 });
 
 describe("runHost dry-run", () => {
@@ -106,6 +160,8 @@ describe("runHost dry-run", () => {
         dryRun: true,
         prefix: dir,
         magicDnsName: "host.ts.net",
+        isolation: "host",
+        exposes: [],
       },
       (line) => lines.push(line),
     );

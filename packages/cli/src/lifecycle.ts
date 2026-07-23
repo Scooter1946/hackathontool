@@ -1,5 +1,6 @@
 import { homedir, tmpdir } from "node:os";
 import { basename, dirname, resolve } from "node:path";
+import * as C from "./container-artifacts.js";
 import * as A from "./host-artifacts.js";
 import { defaultLog, executePlanItems, type PlanItem, writePlanDryRun } from "./plan.js";
 
@@ -12,6 +13,8 @@ export interface LifecycleOptions {
   prefix: string;
   sshUrl?: string;
   archivePath?: string;
+  /** Must match how the host was provisioned so stop/teardown reverse the right artifacts. */
+  isolation: C.Isolation;
 }
 
 export interface LifecycleResult {
@@ -26,6 +29,7 @@ export function parseLifecycleArgs(argv: string[]): LifecycleOptions {
   let prefix = "";
   let sshUrl: string | undefined;
   let archivePath: string | undefined;
+  let isolation: C.Isolation = "host";
 
   for (let i = 0; i < argv.length; i++) {
     const arg = argv[i];
@@ -48,6 +52,14 @@ export function parseLifecycleArgs(argv: string[]): LifecycleOptions {
       case "--archive":
         archivePath = argv[++i];
         break;
+      case "--isolation": {
+        const value = argv[++i];
+        if (value !== "host" && value !== "container") {
+          throw new Error("--isolation must be 'host' or 'container'");
+        }
+        isolation = value;
+        break;
+      }
       case "--execute":
         dryRun = false;
         break;
@@ -66,7 +78,7 @@ export function parseLifecycleArgs(argv: string[]): LifecycleOptions {
 
   const platform: A.Platform = process.platform === "linux" ? "linux" : "darwin";
   if (!prefix) prefix = resolve(tmpdir(), "teamctx-dryrun");
-  return { users, teamDir, platform, dryRun, prefix, sshUrl, archivePath };
+  return { users, teamDir, platform, dryRun, prefix, sshUrl, archivePath, isolation };
 }
 
 function reloadSshd(platform: A.Platform): A.Command {
@@ -115,8 +127,166 @@ function serverUnitPath(platform: A.Platform): string {
     : resolve(homedir(), ".config", "systemd", "user", "teamctx.service");
 }
 
+/** Remove each guest Unix account (platform-specific). */
+function userRemovalCommands(o: LifecycleOptions): A.Command[] {
+  return o.users.map((user) =>
+    o.platform === "darwin"
+      ? {
+          argv: ["sysadminctl", "-deleteUser", user],
+          sudo: true,
+          description: `remove user ${user}`,
+        }
+      : { argv: ["userdel", "-r", user], sudo: true, description: `remove user ${user} and home` },
+  );
+}
+
+/** Remove the teamctx group (platform-specific). */
+function groupRemovalCommand(o: LifecycleOptions): A.Command {
+  return o.platform === "darwin"
+    ? {
+        argv: ["dseditgroup", "-o", "delete", A.DEFAULTS.group],
+        sudo: true,
+        description: `remove group ${A.DEFAULTS.group}`,
+      }
+    : {
+        argv: ["groupdel", A.DEFAULTS.group],
+        sudo: true,
+        description: `remove group ${A.DEFAULTS.group}`,
+      };
+}
+
+/** `stop` in container mode: disable guest SSH and stop the box; keep the image and /team. */
+function buildContainerStopPlan(o: LifecycleOptions): PlanItem[] {
+  return [
+    {
+      id: "sshd-disable",
+      title: "Disable guest SSH (remove the Match block)",
+      files: [],
+      commands: [removeSshdBlockCommand(), reloadSshd(o.platform)],
+    },
+    {
+      id: "box-stop",
+      title: "Stop the jail container (image + data kept)",
+      files: [],
+      commands: [
+        {
+          argv: ["docker", "stop", C.CONTAINER_DEFAULTS.containerName],
+          sudo: true,
+          description: "stop the box container",
+        },
+      ],
+    },
+    {
+      id: "keepawake",
+      title: "Release keep-awake",
+      files: [],
+      commands:
+        o.platform === "darwin"
+          ? [{ argv: ["pkill", "-x", "caffeinate"], sudo: false, description: "stop caffeinate" }]
+          : [],
+    },
+  ];
+}
+
+/** `teardown` in container mode: remove the box + image + host bridge/sudoers + users; archive /team. */
+function buildContainerTeardownPlan(o: LifecycleOptions, archivePath: string): PlanItem[] {
+  return [
+    {
+      id: "box-remove",
+      title: "Stop and remove the jail container + image",
+      files: [],
+      commands: [
+        {
+          argv: ["docker", "rm", "-f", C.CONTAINER_DEFAULTS.containerName],
+          sudo: true,
+          description: "remove the box container",
+        },
+        {
+          argv: ["docker", "rmi", C.CONTAINER_DEFAULTS.image],
+          sudo: true,
+          description: "remove the box image",
+        },
+      ],
+    },
+    {
+      id: "sshd-restore",
+      title: "Restore sshd_config",
+      files: [],
+      commands: [removeSshdBlockCommand(), reloadSshd(o.platform)],
+    },
+    {
+      id: "bridge-remove",
+      title: "Remove the host bridge, enter script, and sudoers rule",
+      files: [],
+      commands: [
+        {
+          argv: ["rm", "-f", C.CONTAINER_DEFAULTS.bridgePath],
+          sudo: true,
+          description: `remove ${C.CONTAINER_DEFAULTS.bridgePath}`,
+        },
+        {
+          argv: ["rm", "-f", C.CONTAINER_DEFAULTS.enterPath],
+          sudo: true,
+          description: `remove ${C.CONTAINER_DEFAULTS.enterPath}`,
+        },
+        {
+          argv: ["rm", "-f", "/etc/sudoers.d/teamctx"],
+          sudo: true,
+          description: "remove the teamctx sudoers rule",
+        },
+      ],
+    },
+    ...(o.users.length > 0
+      ? [
+          {
+            id: "users-remove",
+            title: `Remove guest users: ${o.users.join(", ")}`,
+            files: [],
+            commands: userRemovalCommands(o),
+          },
+        ]
+      : []),
+    {
+      id: "group-remove",
+      title: "Remove the teamctx group",
+      files: [],
+      commands: [groupRemovalCommand(o)],
+    },
+    {
+      id: "state-remove",
+      title: "Remove teamctx state (private homes + build context)",
+      files: [],
+      commands: [
+        {
+          argv: ["rm", "-rf", C.CONTAINER_DEFAULTS.homesDir],
+          sudo: true,
+          description: "remove per-user homes (Claude/gh tokens)",
+        },
+        {
+          argv: ["rm", "-rf", "/var/lib/teamctx/box-build"],
+          sudo: true,
+          description: "remove the docker build context",
+        },
+      ],
+    },
+    {
+      id: "archive",
+      title: `Archive ${o.teamDir} → ${archivePath}`,
+      files: [],
+      commands: [
+        {
+          argv: ["tar", "-czf", archivePath, "-C", dirname(o.teamDir), basename(o.teamDir)],
+          sudo: false,
+          description: "archive the team folder for the hoster",
+        },
+      ],
+    },
+  ];
+}
+
 /** `stop`: pause hosting but keep all data (team folder, users, managed settings) intact. */
 export function buildStopPlan(o: LifecycleOptions): PlanItem[] {
+  if (o.isolation === "container") return buildContainerStopPlan(o);
   return [
     {
       id: "sshd-disable",
@@ -144,29 +314,10 @@ export function buildStopPlan(o: LifecycleOptions): PlanItem[] {
 
 /** `teardown`: reverse everything `host` installed and archive the team folder. */
 export function buildTeardownPlan(o: LifecycleOptions, archivePath: string): PlanItem[] {
+  if (o.isolation === "container") return buildContainerTeardownPlan(o, archivePath);
   const managedPath = A.MANAGED_SETTINGS_PATH[o.platform];
-
-  const userRemoval: A.Command[] = o.users.map((user) =>
-    o.platform === "darwin"
-      ? {
-          argv: ["sysadminctl", "-deleteUser", user],
-          sudo: true,
-          description: `remove user ${user}`,
-        }
-      : { argv: ["userdel", "-r", user], sudo: true, description: `remove user ${user} and home` },
-  );
-  const groupRemoval: A.Command =
-    o.platform === "darwin"
-      ? {
-          argv: ["dseditgroup", "-o", "delete", A.DEFAULTS.group],
-          sudo: true,
-          description: `remove group ${A.DEFAULTS.group}`,
-        }
-      : {
-          argv: ["groupdel", A.DEFAULTS.group],
-          sudo: true,
-          description: `remove group ${A.DEFAULTS.group}`,
-        };
+  const userRemoval = userRemovalCommands(o);
+  const groupRemoval = groupRemovalCommand(o);
 
   return [
     {

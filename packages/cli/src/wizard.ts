@@ -34,6 +34,12 @@ export function hostCommandLine(o: HostOptions): string {
   if (o.repoUrl) parts.push(`--repo ${o.repoUrl}`);
   if (o.port !== DEFAULTS.port) parts.push(`--port ${o.port}`);
   if (o.teamDir !== DEFAULTS.teamDir) parts.push(`--team-dir ${o.teamDir}`);
+  if (o.isolation === "container") {
+    parts.push("--isolation container");
+    for (const e of o.exposes) {
+      parts.push(`--expose ${e.host}:${e.container}${e.readOnly ? ":ro" : ""}`);
+    }
+  }
   parts.push("--execute");
   return parts.join(" ");
 }
@@ -88,7 +94,17 @@ export async function collectHostOptions(
   const portAns = (await io.question(`Context-server port [${base.port}]: `)).trim();
   const port = portAns ? Number.parseInt(portAns, 10) || base.port : base.port;
 
-  return { ...base, users, repoUrl, port, dryRun: true };
+  const jailAns = await io.question(
+    "Isolate each teammate in a container so they can't see the host's files? [y/N]: ",
+  );
+  const isolation: HostOptions["isolation"] = isYes(jailAns) ? "container" : "host";
+  if (isolation === "container") {
+    io.print(
+      "  → container mode: teammates are jailed to /team (needs Docker/OrbStack on the host).",
+    );
+  }
+
+  return { ...base, users, repoUrl, port, isolation, dryRun: true };
 }
 
 /**

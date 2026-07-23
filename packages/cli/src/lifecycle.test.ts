@@ -20,6 +20,7 @@ const opts = (over: Partial<LifecycleOptions> = {}): LifecycleOptions => ({
   platform: "darwin",
   dryRun: true,
   prefix: resolve(tmpdir(), "teamctx-lifecycle-test"),
+  isolation: "host",
   ...over,
 });
 
@@ -82,5 +83,22 @@ describe("dry-run runners change nothing", () => {
     expect((await runStop(opts(), noop)).dryRun).toBe(true);
     expect((await runTeardown(opts(), noop)).dryRun).toBe(true);
     expect((await runJoin(opts({ sshUrl: "ssh://a@h" }), noop)).dryRun).toBe(true);
+  });
+});
+
+describe("container lifecycle", () => {
+  it("stop pauses the box and disables SSH but keeps data (no rm)", () => {
+    const cmds = flatCommands(buildStopPlan(opts({ isolation: "container" })));
+    expect(cmds.some((c) => c.startsWith("docker stop"))).toBe(true);
+    expect(cmds.some((c) => c.includes("sshd_config"))).toBe(true);
+    expect(cmds.some((c) => c.startsWith("docker rm"))).toBe(false);
+  });
+
+  it("teardown removes the box, image, bridge, sudoers, and users, then archives /team", () => {
+    const cmds = flatCommands(buildTeardownPlan(opts({ isolation: "container" }), "/tmp/a.tgz"));
+    expect(cmds.some((c) => c.startsWith("docker rm -f"))).toBe(true);
+    expect(cmds.some((c) => c.startsWith("docker rmi"))).toBe(true);
+    expect(cmds.some((c) => c.includes("/etc/sudoers.d/teamctx"))).toBe(true);
+    expect(cmds.some((c) => c.startsWith("tar -czf"))).toBe(true);
   });
 });
